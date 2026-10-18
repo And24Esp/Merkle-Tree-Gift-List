@@ -5,13 +5,24 @@ const MerkleTree = require('../utils/MerkleTree');
 const serverUrl = 'http://localhost:1225';
 
 async function main() {
-  // TODO: how do we prove to the server we're on the nice list? 
+  const name = process.argv.slice(2).join(' ') || 'Norman Block';
+  const index = niceList.findIndex(entry => entry === name);
 
-  const { data: gift } = await axios.post(`${serverUrl}/gift`, {
-    // TODO: add request body parameters here!
+  if (index === -1) {
+    throw new Error(`"${name}" is not in the gift list.`);
+  }
+
+  const merkleTree = new MerkleTree(niceList);
+  const proof = merkleTree.getProof(index);
+  const { data: response } = await axios.post(`${serverUrl}/gift`, {
+    name,
+    proof,
   });
 
-  console.log({ gift });
+  console.log(response);
 }
 
-main();
+main().catch(error => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

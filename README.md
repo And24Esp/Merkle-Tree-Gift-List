@@ -1,39 +1,114 @@
-# Merkle Tree Gift List 
-Project to build an application which gives out gifts, but only to names on a list. The catch is that on the server, you are only allowed to store one 32 byte value in the server memory. This 32 byte value has to be enough for the server to be able to determine who is on the list.
+# Merkle Tree Gift List
 
-To get started, read this readme for further instructions!
+This project demonstrates how to prove that a name is on a gift list without
+sending the entire list to the server. The client acts as the **prover** and
+sends a Merkle proof. The server acts as the **verifier** and checks the proof
+against one fixed 32-byte Merkle root.
 
-## Hints
+## Requirements
 
-Think of the client as the prover here. They are the ones trying to prove to the server that the one name is in the list. Likewise think of the server as the verifier here. They are taking the client's proof and, using minimal information, able to verify that the name sent from the client is actually in the list.
+- Node.js 18 or newer
+- npm
 
-Check out the `/utils` folder for everything you need for the Merkle Tree. Take a look at the `example.js` file to see how to create a root, create a proof, and verify that proof.
+## Install dependencies
 
-We modified the MerkleTree implementation so you won't have to! You can see we used a few helpers from the `ethereum-cryptography` library to convert between types.
+From the project root, run:
 
-## Starting the project
+```sh
+npm install
+```
 
-To get started with the repository, clone it and then run `npm install` in the top-level directory to install the depedencies.
+## Run the application
 
-There are three folders in this repository:
+Start the server in one terminal:
 
-## Client
+```sh
+node server/index.js
+```
 
-You can run the client from the top-level directory with `node client/index`. This file is a script which will send an HTTP request to the server.
+The server listens on `http://localhost:1225`.
 
-Think of the client as the _prover_ here. It needs to prove to the server that some `name` is in the `MERKLE_ROOT` on the server. 
+In a second terminal, ask the client to request a gift:
 
-## Server
+```sh
+node client/index.js
+```
 
-You can run the server from the top-level directory with `node server/index`. This file is an express server which will be hosted on port 1225 and respond to the client's request.
+The default name is `Norman Block`, which is on the list. You can also choose
+another listed person by passing their full name as a command-line argument:
 
-Think of the server as the _verifier_ here. It needs to verify that the `name` passed by the client is in the `MERKLE_ROOT`. If it is, then we can send the gift! 
+```sh
+node client/index.js "Sidney Kertzmann"
+```
 
-## Utils
+The client creates a Merkle tree from `utils/niceList.json`, finds the chosen
+name, builds its proof, and sends only the name and proof to the server. If the
+name is not in the local list, the client reports that fact and does not make
+a request.
 
-There are a few files in utils:
+To see how the basic tree operations work independently of the server, run:
 
-- The `niceList.json` which contains all the names of the people who deserve a gift this year (this is randomly generated, feel free to add yourself and others to this list!)
-- The `example.js` script shows how we can generate a root, generate a proof and verify that some value is in the root using the proof. Try it out from the top-level folder with `node/example.js`
-- The `MerkleTree.js` should look familiar from the Merkle Tree module! This one has been modified so you should not have to deal with any crypto type conversion. You can import this in your client/server
-- The `verifyProof.js` should also look familiar. This was the last stage in the module. You can use this function to prove a name is in the merkle root, as show in the example.
+```sh
+node utils/example.js
+```
+
+## Tests
+
+Run the automated Merkle-tree tests from the project root:
+
+```sh
+npm test
+```
+
+The tests check that the list produces the root pinned in the server and that a
+member's proof verifies for that name but not for a different name.
+
+For an end-to-end rejection check, keep the server running and submit a
+well-formed proof that does not match the name:
+
+```powershell
+Invoke-RestMethod -Uri http://localhost:1225/gift -Method Post `
+  -ContentType 'application/json' `
+  -Body '{"name":"Not on the list","proof":[]}'
+```
+
+The expected response is `You are not on the list :(`. Malformed proof data
+should receive HTTP `400`.
+
+## How the Merkle proof works
+
+Each list entry is hashed with Keccak-256 to create a leaf. Neighboring leaves
+are combined and hashed repeatedly until one root remains. A proof contains the
+hashes needed to rebuild that root from a single name. The server hashes the
+submitted name, combines it with the proof hashes in the indicated order, and
+accepts it only if the result matches its stored root.
+
+The root is specific to the exact contents and order of `utils/niceList.json`.
+If you edit that list, recalculate the root with:
+
+```sh
+node -e "const MerkleTree = require('./utils/MerkleTree'); const list = require('./utils/niceList.json'); console.log(new MerkleTree(list).getRoot());"
+```
+
+Replace `MERKLE_ROOT` in `server/index.js` and the expected root in
+`test/MerkleTree.test.js` with the new result.
+
+## Changes by file
+
+- **`client/index.js`** — Selects a name from the command line (or uses
+  `Norman Block`), finds its index, builds its Merkle proof, and sends the name
+  and proof to the server. It reports a name missing from the local gift list
+  without making a request, and prints request errors clearly.
+- **`server/index.js`** — Stores only the hard-coded 32-byte Merkle root needed
+  for verification. It validates the request and proof structure, verifies the
+  proof, returns the toy robot message for a valid member, and rejects
+  non-members.
+- **`utils/MerkleTree.js`** — Fixes conversion of each leaf to a Buffer. Using
+  `Buffer.from` directly as an `Array.map` callback also passes the array index
+  as an extra argument, which can be interpreted as an encoding.
+- **`test/MerkleTree.test.js`** — Adds regression tests for the pinned root and
+  for accepting a valid proof while rejecting a different name.
+- **`package.json`** — Adds the `npm test` command using Node's built-in test
+  runner; no test dependency is needed.
+- **`README.md`** — Documents installation, running both processes, automated
+  and manual rejection tests, root updates, and the purpose of each change.
